@@ -20,14 +20,17 @@ export async function cropToPngBytes(
   return new Uint8Array(await blob.arrayBuffer());
 }
 
-export function loadImageFromFile(file: File): Promise<HTMLImageElement> {
+// Returns the object URL alongside the image rather than revoking it once
+// loaded: the caller also uses this same URL as the visible <img> preview's
+// src, and a *new* <img> element assigned an already-revoked blob: URL fails
+// to load in spec-compliant browsers (the blob URL registry entry is gone
+// even though the original Image object already decoded it). The caller
+// owns revoking it — when a new photo replaces this one, or on unmount.
+export function loadImageFromFile(file: File): Promise<{ image: HTMLImageElement; objectUrl: string }> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const image = new Image();
-    image.onload = () => {
-      URL.revokeObjectURL(url);
-      resolve(image);
-    };
+    image.onload = () => resolve({ image, objectUrl: url });
     image.onerror = () => {
       URL.revokeObjectURL(url);
       reject(new Error("Couldn't read this file as an image."));

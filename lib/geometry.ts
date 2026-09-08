@@ -17,16 +17,21 @@ export function padAndClampBox(
   const padX = box.width * paddingRatio;
   const padY = box.height * paddingRatio;
 
-  const left = Math.max(0, box.x - padX);
-  const top = Math.max(0, box.y - padY);
-  const right = Math.min(imageSize.width, box.x + box.width + padX);
-  const bottom = Math.min(imageSize.height, box.y + box.height + padY);
+  const left = Math.round(Math.max(0, box.x - padX));
+  const top = Math.round(Math.max(0, box.y - padY));
+  // Rounded independently from `left`/`top`, not derived as
+  // round(right) - round(left) from separately-rounded edges — rounding
+  // each edge and then subtracting can overshoot the image bound by up to
+  // 1px (e.g. left=k+0.5 rounds up to k+1 while right stays at the clamped
+  // edge), which the function's own contract above says must never happen.
+  const right = Math.min(imageSize.width, Math.round(box.x + box.width + padX));
+  const bottom = Math.min(imageSize.height, Math.round(box.y + box.height + padY));
 
   return {
-    x: Math.round(left),
-    y: Math.round(top),
-    width: Math.max(1, Math.round(right - left)),
-    height: Math.max(1, Math.round(bottom - top)),
+    x: left,
+    y: top,
+    width: Math.max(1, right - left),
+    height: Math.max(1, bottom - top),
   };
 }
 

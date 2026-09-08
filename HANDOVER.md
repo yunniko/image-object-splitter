@@ -113,20 +113,24 @@ since a future change to this file needs to know them:
   actual failing run against real input — this bug's type signature was
   perfectly valid TypeScript and still broken at runtime.
 
-**D3 — Domain-expert review requested for computer-vision/image-processing
-claims, not skipped the way `fraction-calculator`'s pure-arithmetic build
-was.** Unlike a "pure math, no domain claim" tool, this project makes
-several claims a reviewer with real CV/image-processing background can
-check that a software-focused review wouldn't necessarily catch: EXIF
-orientation handling in canvas-based cropping (a classic real bug class —
-whether `HTMLImageElement`'s `naturalWidth`/`naturalHeight` and
-`drawImage()` already reflect EXIF auto-rotation in evergreen browsers, or
-whether this project needs to handle it explicitly), the honesty of the
-"80 object classes, may miss X" disclosure against coco-ssd's actual
-real-world limitations, and PNG alpha-channel correctness through the
-crop → optional-background-removal → zip pipeline. See
-`docs/domain-reference.md` for the review once run, and the entry that
-follows this one for its outcome.
+**D3 — Domain-expert review (2026-09-08) found three real, source-verified
+bugs, not just documentation gaps — all three fixed same run.** Full detail
+in `docs/domain-reference.md`. Highest severity: coco-ssd's own `infer()`
+passes `minScore` as BOTH the score threshold and the IoU threshold to
+non-max suppression (verified directly against the vendored
+`coco-ssd.js`), so this project's original "detect once at a low threshold,
+re-filter client-side" design silently changed which boxes survived
+suppression, not just which were displayed — fixed by always detecting at
+coco-ssd's own documented default (0.5) and only ever raising the UI
+threshold from there. Also fixed: a revoked-blob-URL bug where the object
+URL backing the preview `<img>` was revoked before a new element ever
+loaded it (spec-compliant browsers fail this — not independently
+re-verified live afterward, session budget ran out first, see next steps);
+and a 1px image-bound overflow possible in `padAndClampBox`'s rounding.
+Deferred to a later session: a downscale guard against OOM on very large
+photos, and a fuller FAQ disclosure of the background-remover's fur/hair
+edge-quality tradeoff. See `docs/domain-reference.md` for the complete
+finding-by-finding detail and reviewer confidence levels.
 
 **D4 — Bounding-box overlays are positioned with CSS percentages of a
 wrapper sized to the displayed `<img>`, not by tracking the image's

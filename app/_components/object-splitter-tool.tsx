@@ -15,10 +15,18 @@ type Status = "idle" | "loading-model" | "detecting" | "ready" | "no-objects" | 
 // share a color — purely a visual correlation aid, has no effect on export.
 const BOX_COLORS = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#9333ea", "#0891b2", "#db2777", "#65a30d"];
 
-// coco-ssd is run once at this low threshold so the confidence slider can
-// re-filter already-computed detections instantly, without re-running the
-// model — see the slider's own onChange handler below.
-const DETECT_MIN_SCORE = 0.3;
+// coco-ssd is run once at exactly its own documented default minScore
+// (0.5) and the confidence slider only ever raises the *displayed*
+// threshold from there, never lowers it below what was actually detected.
+// This is load-bearing, not just a UX choice: coco-ssd's own detect() call
+// passes minScore as BOTH the score threshold AND the IoU threshold to
+// non-max suppression (see node_modules/@tensorflow-models/coco-ssd/dist/
+// coco-ssd.js's `infer()`), so detecting at a lower threshold than 0.5 to
+// "pre-fetch more results to filter later" actually changes which boxes
+// survive suppression, not just which ones are shown — a real domain-expert
+// finding (2026-09-08, see docs/domain-reference.md), verified directly
+// against the vendored source before this fix.
+const DETECT_MIN_SCORE = 0.5;
 
 export function ObjectSplitterTool() {
   const [status, setStatus] = useState<Status>("idle");
@@ -41,9 +49,9 @@ export function ObjectSplitterTool() {
     setSelected(new Set());
     setStatus("loading-model");
     try {
-      const image = await loadImageFromFile(file);
+      const { image, objectUrl } = await loadImageFromFile(file);
       setImageEl(image);
-      setImageUrl(image.src);
+      setImageUrl(objectUrl);
       const size = { width: image.naturalWidth, height: image.naturalHeight };
       setImageSize(size);
 
@@ -168,7 +176,7 @@ export function ObjectSplitterTool() {
               <span className="text-gray-600">Minimum confidence: {Math.round(minScore * 100)}%</span>
               <input
                 type="range"
-                min={0.3}
+                min={0.5}
                 max={0.95}
                 step={0.05}
                 value={minScore}
