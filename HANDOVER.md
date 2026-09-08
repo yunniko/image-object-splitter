@@ -21,7 +21,11 @@ Three tools as of 2026-09-08's later same-day session (D6/D7 below,
 Owner-directed): object splitter (AI-based), split-by-color (a second,
 deliberately non-AI icon/sprite-sheet splitter), and background remover.
 The object-splitter and split-by-color tools both offer an optional
-"resize exports to fit a box" step (D6).
+"resize exports to fit a box" step (D6). The background remover now lets
+the user pick a quality tier with real download sizes shown, a same-
+browser "downloaded before" hint, and a real progress bar during
+download/inference (D9), in response to Owner-reported quality/speed
+complaints investigated in D8.
 
 ## How things fit together
 
@@ -367,16 +371,95 @@ its real model-size manifest — three separate, real findings, not one bug:**
      the single COCO demo fixture and this session's synthetic test PNGs).
      Logged here as a considered-and-rejected option, not silently skipped.
 
+**D9 — Resolved D8's model-quality question by making it a user choice
+instead of picking for them (Owner directive, 2026-09-08): "make a quality
+choice option telling how much download it will require and check[]ing if
+it is already downloaded and cached or not... download progressbar if it
+is possible or at least a 'preparing' status with loader icon."** All three
+asks turned out to be real and buildable, though the "cached" check needed
+an honest downgrade from what was literally asked:
+  - **Quality picker**: `lib/background-remover.ts` now exports
+    `MODEL_TIERS` (the three tiers from D8, with their real byte-exact
+    sizes: 44,348,940 / 88,152,708 / 176,149,806) and
+    `DEFAULT_MODEL_TIER = "isnet_fp16"` ("Balanced," the library's own
+    actual default — replaces the previous unconditional `isnet_quint8`).
+    `removeImageBackground` takes an options object now
+    (`{ model?, onProgress? }`) rather than a bare two-arg call — both
+    current call sites (`background-remover-tool.tsx`'s new radio picker,
+    and `object-splitter-tool.tsx`'s existing "remove background" checkbox,
+    which keeps the shared default rather than getting its own picker UI —
+    a deliberate scope line to avoid cluttering an already dense per-export
+    control panel) were updated.
+  - **"Already downloaded" check — real API limitation, honestly
+    downgraded.** There is no browser API to ask "is this cross-origin URL
+    already in the HTTP cache" without fetching it: Cache Storage is a
+    separate mechanism this library doesn't use, and
+    `fetch(url, {cache:"only-if-cached"})` only works same-origin per spec.
+    Built the closest honest substitute instead:
+    `hasLikelyDownloadedModel`/`markModelDownloaded` record "this browser
+    successfully downloaded this tier before" in `localStorage`, surfaced
+    in the UI as "downloaded before in this browser" — not "cached," which
+    would overclaim a guarantee the API can't back up (documented in both
+    the function's own comment and the page's FAQ). Verified this actually
+    persists and re-renders correctly across a real reload, not just that
+    it compiles — see the e2e test below.
+  - **Real progress bar, not a fake one.** The library's own `progress`
+    config callback (`Config.progress`, verified against
+    `dist/index.mjs`) fires `("fetch:<key>", bytesSoFar, totalBytes)`
+    per-chunk during downloads and `("compute:<step>", n, 4)` across five
+    inference phases (decode/inference/mask/encode×2) — genuine,
+    byte-accurate data, not invented. Deliberately NOT blended into one
+    global percentage: the model download finishes well before the (much
+    smaller) WASM runtime's own download starts, so a naive running-sum
+    fraction would hit ~100% and then visibly drop once the runtime's own
+    total joined the denominator. Each resource's own real progress is
+    shown under a phase-appropriate label instead (`RemovalProgress`'s
+    `phase`/`label`/`fraction`), avoiding that artifact without faking
+    precision. A small shared `<Spinner>` component (`app/_components/
+    spinner.tsx`, plain animate-spin SVG, no icon library) pairs with a
+    native `<progress>` element — numeric when a fraction is known,
+    indeterminate (no `value`) otherwise — satisfying the "or at least a
+    preparing status with loader icon" fallback the Owner named, though a
+    real progress bar was possible for the actual download phase.
+  - **A real React/SSR correctness fix along the way**: the first draft
+    read `localStorage` inside a `useEffect` + `setState` (to avoid an SSR
+    crash — `localStorage` doesn't exist server-side), which
+    `react-hooks/set-state-in-effect` correctly flagged — this exact
+    pattern (subscribing to a browser API with no React-specific hook) is
+    what `useSyncExternalStore` exists for. Rebuilt on it instead:
+    `getServerSnapshot` returns an all-false string for the SSR/pre-
+    hydration pass (avoiding a hydration mismatch), the real client
+    snapshot takes over after mount, and `markModelDownloaded` dispatches a
+    custom event so same-tab updates re-render immediately (the native
+    `storage` event only fires in *other* tabs) — see
+    `subscribeToModelDownloadHints`.
+  - **Verified**: `npx eslint .` clean, `npx vitest run` 43/43,
+    `npm run build` clean (including a real TS1501 catch — an unsupported
+    regex `s` flag in a new e2e test, fixed to `[\s\S]*` instead). Extended
+    the real e2e test (not a new one — folded into the existing
+    background-remover flow to avoid adding another ~90s+ model-download
+    test run) to assert: the three real MB sizes render, "Balanced" is
+    selected by default, no tier shows a false "downloaded before" claim
+    pre-upload, a real `role=progressbar` appears during processing, and —
+    after the real run completes and the page is reloaded — the just-used
+    tier now does show the hint. A real-browser (non-headless) timing
+    comparison confirmed the expected D8 tradeoff directly: this tier
+    ("Balanced," 84 MB) took ~33s versus ~20-24s observed earlier for the
+    old default ("Fast," 42 MB) on the same fixture — the cost is real, not
+    just theoretical, which is exactly why this became a user choice rather
+    than a unilateral default change.
+
 ## Owner action list
 
 - AdSense approval status for this domain is unconfirmed, same as every
   other svc-lab service — ask the Owner to check the AdSense dashboard.
-- **D8 decisions needed:** (a) is trading the real-but-uncertain AdSense
-  compatibility risk for faster WASM inference (via COOP/COEP headers)
-  worth it, or should this wait until ads are confirmed actually rendering
-  on this domain first; (b) is the ~2x/4x download-size cost of
-  `isnet_fp16`/`isnet` worth the quality improvement for this tool's real
-  users, or does `isnet_quint8`'s current download size matter more.
+- **D8's two open decisions, both resolved 2026-09-08:** (a) COOP/COEP for
+  WASM threading — Owner said hold off until AdSense is confirmed actually
+  rendering on this domain; **not implemented, revisit once that's
+  confirmed** (see the AdSense action item above — the two are linked). (b)
+  Model quality vs. download size — resolved by making it a user-facing
+  choice (D9) rather than a unilateral default; the library's own real
+  default (`isnet_fp16`, "Balanced") is now this project's default too.
 
 ## Next steps and open questions
 

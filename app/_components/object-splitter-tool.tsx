@@ -10,6 +10,7 @@ import { triggerDownload } from "@/lib/trigger-download";
 import { assignPerClassIndices, buildExportFilename, padAndClampBox } from "@/lib/geometry";
 import { ImageFileInput } from "./image-file-input";
 import { ResizeControls } from "./resize-controls";
+import { Spinner } from "./spinner";
 
 type Status = "idle" | "loading-model" | "detecting" | "ready" | "no-objects" | "error";
 
@@ -114,13 +115,16 @@ export function ObjectSplitterTool() {
   async function exportOne(
     index: number,
     resizeTarget: ResizeTarget | null,
+    progressPrefix: string,
   ): Promise<{ filename: string; bytes: Uint8Array }> {
     const detection = detections[index];
     if (!imageEl) throw new Error("No image loaded.");
     const box = padAndClampBox(detection.bbox, paddingRatio, imageSize);
     let bytes = await cropToPngBytes(imageEl, box);
     if (removeBackground) {
-      bytes = await removeImageBackground(bytes, "image/png");
+      bytes = await removeImageBackground(bytes, "image/png", {
+        onProgress: (progress) => setExporting(`${progressPrefix}${progress.label}`),
+      });
     }
     if (resizeTarget) {
       bytes = await resizeBytesToBox(bytes, resizeTarget);
@@ -137,13 +141,14 @@ export function ObjectSplitterTool() {
       const resizeTarget = parseResizeTarget(resizeEnabled, resizeWidth, resizeHeight, resizeFill, resizeColor);
       if (indices.length === 1) {
         setExporting("Processing…");
-        const { filename, bytes } = await exportOne(indices[0], resizeTarget);
+        const { filename, bytes } = await exportOne(indices[0], resizeTarget, "");
         triggerDownload(bytes, filename, "image/png");
       } else {
         const entries: { filename: string; data: Uint8Array }[] = [];
         for (let n = 0; n < indices.length; n++) {
-          setExporting(`Processing ${n + 1}/${indices.length}…`);
-          const { filename, bytes } = await exportOne(indices[n], resizeTarget);
+          const prefix = `${n + 1}/${indices.length}: `;
+          setExporting(`${prefix}Processing…`);
+          const { filename, bytes } = await exportOne(indices[n], resizeTarget, prefix);
           entries.push({ filename, data: bytes });
         }
         setExporting("Building zip…");
@@ -283,8 +288,9 @@ export function ObjectSplitterTool() {
               type="button"
               onClick={handleExportSelected}
               disabled={exporting !== null || selected.size === 0}
-              className="rounded-md bg-blue-700 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-gray-300"
+              className="flex items-center gap-2 rounded-md bg-blue-700 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-gray-300"
             >
+              {exporting && <Spinner className="h-4 w-4 text-white" />}
               {exporting ?? `Download selected (${selected.size})`}
             </button>
           </div>

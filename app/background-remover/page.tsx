@@ -22,7 +22,12 @@ const FAQ = [
   {
     question: "Why is the first run slow?",
     answer:
-      "The AI segmentation model is several megabytes and downloads the first time you use the tool in a session. Your browser caches it, so later photos process faster.",
+      "The AI segmentation model is a real download — 42 to 168 MB depending on the quality level you pick below. It downloads once per browser and is cached afterward, so later photos (and the same quality level on a later visit) process faster.",
+  },
+  {
+    question: "What do the quality levels mean?",
+    answer:
+      "They're different sizes of the same AI model. Fast is the smallest and quickest but more likely to leave rough edges or small gaps on a busy background; Best quality is the most accurate but the largest download. \"Downloaded before in this browser\" is a best-effort hint based on your own past use here, not a live check of your browser's cache — it can occasionally be wrong if your browser has since cleared its cache, in which case you'll just see a real download instead of a surprise-free one.",
   },
   {
     question: "What file format is the result?",

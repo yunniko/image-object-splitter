@@ -72,6 +72,39 @@ conventions in `E:\CLAUDE\COMPANY\GOALS.md`.
       via the shared `ADSENSE_PUBLISHER_ID` env var).
 
 **Progress log** (newest first):
+- 2026-09-08 — Owner resolved D8's two open questions: held off on COOP/
+  COEP (WASM threading) until AdSense is confirmed rendering on this
+  domain, and asked for the model-quality tradeoff to become a user-facing
+  choice instead of a unilateral pick — "a quality choice option telling
+  how much download it will require and check[]ing if it is already
+  downloaded and cached or not... download progressbar if it is possible
+  or at least a 'preparing' status with loader icon." Built all three; full
+  detail in HANDOVER.md's D9. Quality picker with real byte-exact download
+  sizes (44.3/88.1/176.1 MB) now defaults to the library's own real default
+  ("Balanced"/isnet_fp16) rather than its lowest tier. "Downloaded before"
+  is an honest localStorage-based hint, not a literal cache check — no
+  browser API exists to check a cross-origin URL's cache status without
+  fetching it, documented as such rather than overclaiming. A real,
+  byte-accurate progress bar (the library's own progress callback, verified
+  against source) plus a small shared spinner component cover both the
+  literal ask and its "or at least" fallback. Along the way, a first draft
+  hit a real `react-hooks/set-state-in-effect` lint error reading
+  `localStorage` in a `useEffect`; rebuilt on `useSyncExternalStore`
+  instead (the React-correct tool for subscribing to a browser API with no
+  React-specific hook), with a same-tab custom event since `storage` events
+  don't fire in the tab that made the change. Verified: `npx eslint .`
+  clean, `npx vitest run` 43/43, `npm run build` clean (caught one real
+  TS1501 — an unsupported regex flag in a new e2e assertion, fixed), and
+  the existing background-remover e2e test extended (not duplicated, to
+  avoid another ~90s+ model-download test run) to cover the picker, the
+  progress bar, and — via an actual page reload after a real run — that the
+  "downloaded before" hint genuinely persists and re-renders, not just that
+  it compiles. A real-browser timing check confirmed the expected cost
+  directly: "Balanced" (84 MB) took ~33s vs. ~20-24s for the old default
+  ("Fast", 42 MB) on the same fixture. Object-splitter's existing "remove
+  background" checkbox was updated too (shared default tier, live progress
+  in its own status text) without adding a full picker there, to avoid
+  cluttering its already dense per-export control panel.
 - 2026-09-08 — Owner reported real background-remover quality/speed
   problems (noisy-background cleanliness, holes appearing inside an object
   when part of it matches the background color even across an outline,
