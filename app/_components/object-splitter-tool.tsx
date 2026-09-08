@@ -3,11 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Detection, ImageSize } from "@/lib/types";
 import { detectObjects } from "@/lib/object-detector";
-import { cropToPngBytes, loadImageFromFile } from "@/lib/crop-image";
+import { cropToPngBytes, loadImageFromFile, parseResizeTarget, resizeBytesToBox, type ResizeTarget } from "@/lib/crop-image";
 import { removeImageBackground } from "@/lib/background-remover";
 import { buildZip } from "@/lib/zip-export";
+import { triggerDownload } from "@/lib/trigger-download";
 import { assignPerClassIndices, buildExportFilename, padAndClampBox } from "@/lib/geometry";
 import { ImageFileInput } from "./image-file-input";
+import { ResizeControls } from "./resize-controls";
 
 type Status = "idle" | "loading-model" | "detecting" | "ready" | "no-objects" | "error";
 
@@ -39,6 +41,11 @@ export function ObjectSplitterTool() {
   const [minScore, setMinScore] = useState(0.5);
   const [paddingRatio, setPaddingRatio] = useState(0.1);
   const [removeBackground, setRemoveBackground] = useState(false);
+  const [resizeEnabled, setResizeEnabled] = useState(false);
+  const [resizeWidth, setResizeWidth] = useState("1024");
+  const [resizeHeight, setResizeHeight] = useState("1024");
+  const [resizeFill, setResizeFill] = useState<"transparent" | "color">("transparent");
+  const [resizeColor, setResizeColor] = useState("#ffffff");
   const [exporting, setExporting] = useState<string | null>(null);
   // Tracks the currently-live object URL so it can be revoked exactly once
   // it's no longer referenced by anything (a new photo replacing it, or
@@ -104,13 +111,19 @@ export function ObjectSplitterTool() {
     setSelected(new Set());
   }
 
-  async function exportOne(index: number): Promise<{ filename: string; bytes: Uint8Array }> {
+  async function exportOne(
+    index: number,
+    resizeTarget: ResizeTarget | null,
+  ): Promise<{ filename: string; bytes: Uint8Array }> {
     const detection = detections[index];
     if (!imageEl) throw new Error("No image loaded.");
     const box = padAndClampBox(detection.bbox, paddingRatio, imageSize);
     let bytes = await cropToPngBytes(imageEl, box);
     if (removeBackground) {
       bytes = await removeImageBackground(bytes, "image/png");
+    }
+    if (resizeTarget) {
+      bytes = await resizeBytesToBox(bytes, resizeTarget);
     }
     const filename = buildExportFilename(detection.className, perClassIndices[index], "png");
     return { filename, bytes };
@@ -121,15 +134,16 @@ export function ObjectSplitterTool() {
     if (indices.length === 0) return;
     setError(null);
     try {
+      const resizeTarget = parseResizeTarget(resizeEnabled, resizeWidth, resizeHeight, resizeFill, resizeColor);
       if (indices.length === 1) {
         setExporting("Processing…");
-        const { filename, bytes } = await exportOne(indices[0]);
+        const { filename, bytes } = await exportOne(indices[0], resizeTarget);
         triggerDownload(bytes, filename, "image/png");
       } else {
         const entries: { filename: string; data: Uint8Array }[] = [];
         for (let n = 0; n < indices.length; n++) {
           setExporting(`Processing ${n + 1}/${indices.length}…`);
-          const { filename, bytes } = await exportOne(indices[n]);
+          const { filename, bytes } = await exportOne(indices[n], resizeTarget);
           entries.push({ filename, data: bytes });
         }
         setExporting("Building zip…");
@@ -221,6 +235,19 @@ export function ObjectSplitterTool() {
             </label>
           </div>
 
+          <ResizeControls
+            enabled={resizeEnabled}
+            onEnabledChange={setResizeEnabled}
+            width={resizeWidth}
+            onWidthChange={setResizeWidth}
+            height={resizeHeight}
+            onHeightChange={setResizeHeight}
+            fill={resizeFill}
+            onFillChange={setResizeFill}
+            color={resizeColor}
+            onColorChange={setResizeColor}
+          />
+
           <ul className="space-y-2">
             {visibleIndices.map((i) => {
               const d = detections[i];
@@ -265,16 +292,4 @@ export function ObjectSplitterTool() {
       )}
     </div>
   );
-}
-
-function triggerDownload(bytes: Uint8Array, filename: string, mimeType: string) {
-  const blob = new Blob([bytes.slice() as BlobPart], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  document.body.removeChild(anchor);
-  URL.revokeObjectURL(url);
 }

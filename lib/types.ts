@@ -21,3 +21,20 @@ export interface Detection {
   score: number;
   bbox: BoundingBox;
 }
+
+export interface RGB {
+  r: number;
+  g: number;
+  b: number;
+}
+
+// A decoded image's raw pixel data, RGBA, row-major, 4 bytes per pixel —
+// the same shape as the DOM's ImageData but declared independently so the
+// color-segmentation algorithm in lib/color-segmenter.ts stays testable
+// with a plain in-memory object and doesn't require a real ImageData
+// instance (which only exists in a browser/canvas context).
+export interface PixelBuffer {
+  data: Uint8ClampedArray;
+  width: number;
+  height: number;
+}

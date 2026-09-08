@@ -4,7 +4,7 @@ import Link from "next/link";
 export const metadata: Metadata = {
   title: "Image Object Splitter & Background Remover",
   description:
-    "Free browser-based tools: detect objects in a photo and export each as its own file, or remove a photo's background — no uploads, no sign-up.",
+    "Free browser-based tools: detect objects in a photo and export each as its own file, split an icon or sprite sheet by background color, or remove a photo's background — no uploads, no sign-up.",
 };
 
 const TOOLS = [
@@ -13,6 +13,12 @@ const TOOLS = [
     title: "Object splitter — crop every object in a photo",
     description:
       "Upload a photo, detect the distinct objects in it, pick which ones you want, and download each as its own image (optionally with the background removed).",
+  },
+  {
+    href: "/split-by-color",
+    title: "Split by background color — icon/sprite sheets",
+    description:
+      "Upload an icon sheet, sprite sheet, or any image with items on one solid background, and download each item as its own image, optionally with a transparent background.",
   },
   {
     href: "/background-remover",
@@ -27,9 +33,10 @@ export default function Home() {
     <main className="mx-auto max-w-2xl px-4 py-12">
       <h1 className="text-3xl font-semibold">Image Object Splitter</h1>
       <p className="mt-3 text-gray-600">
-        Free photo tools that run entirely in your browser — your images are
-        never uploaded to a server. Detection and background removal both use
-        on-device AI models.
+        Free image tools that run entirely in your browser — your images are
+        never uploaded to a server. Object detection and background removal
+        use on-device AI models; the background-color splitter is plain
+        pixel analysis, no AI or model download involved.
       </p>
 
       <div className="mt-8 grid gap-4 sm:grid-cols-2">

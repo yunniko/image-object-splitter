@@ -3,6 +3,7 @@ import {
   assignPerClassIndices,
   boxArea,
   buildExportFilename,
+  computeContainFit,
   filterByScore,
   padAndClampBox,
   slugifyClassName,
@@ -53,6 +54,45 @@ describe("padAndClampBox", () => {
 describe("boxArea", () => {
   it("multiplies width by height", () => {
     expect(boxArea({ x: 0, y: 0, width: 4, height: 5 })).toBe(20);
+  });
+});
+
+describe("computeContainFit", () => {
+  it("downscales a wide source to fit a square box, letterboxing top/bottom", () => {
+    const result = computeContainFit({ width: 200, height: 100 }, { width: 100, height: 100 });
+    // scale = min(100/200, 100/100) = 0.5 -> 100x50, centered vertically
+    expect(result).toEqual({ x: 0, y: 25, width: 100, height: 50 });
+  });
+
+  it("downscales a tall source to fit a square box, letterboxing left/right", () => {
+    const result = computeContainFit({ width: 100, height: 200 }, { width: 100, height: 100 });
+    expect(result).toEqual({ x: 25, y: 0, width: 50, height: 100 });
+  });
+
+  it("upscales a small source to fill a larger box", () => {
+    const result = computeContainFit({ width: 50, height: 50 }, { width: 200, height: 200 });
+    expect(result).toEqual({ x: 0, y: 0, width: 200, height: 200 });
+  });
+
+  it("fills the box exactly with no letterboxing when aspect ratios match", () => {
+    const result = computeContainFit({ width: 40, height: 20 }, { width: 200, height: 100 });
+    expect(result).toEqual({ x: 0, y: 0, width: 200, height: 100 });
+  });
+
+  it("never stretches width and height by different factors", () => {
+    const source = { width: 300, height: 150 };
+    const result = computeContainFit(source, { width: 90, height: 90 });
+    const scaleX = result.width / source.width;
+    const scaleY = result.height / source.height;
+    expect(scaleX).toBeCloseTo(scaleY, 10);
+  });
+
+  it("rejects a non-positive source dimension", () => {
+    expect(() => computeContainFit({ width: 0, height: 10 }, { width: 100, height: 100 })).toThrow();
+  });
+
+  it("rejects a non-positive target box dimension", () => {
+    expect(() => computeContainFit({ width: 10, height: 10 }, { width: 100, height: 0 })).toThrow();
   });
 });
 

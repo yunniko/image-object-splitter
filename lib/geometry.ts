@@ -39,6 +39,39 @@ export function boxArea(box: BoundingBox): number {
   return box.width * box.height;
 }
 
+// A target box to fit an exported image into (the "resize" feature's own
+// desired width/height, not a detection's bounding box).
+export interface FitBox {
+  width: number;
+  height: number;
+}
+
+// Computes the largest rectangle with `source`'s exact aspect ratio that
+// fits inside `box` without exceeding it in either dimension (a "contain"
+// fit — scales the whole image up or down uniformly, never stretches it
+// non-uniformly), then centers that rectangle in the box. Pure geometry, so
+// it's unit-testable without a canvas; the actual pixel resampling and
+// background fill happen in crop-image.ts's resizeBytesToBox, which uses
+// this function's output to know where to draw.
+export function computeContainFit(source: ImageSize, box: FitBox): BoundingBox {
+  if (source.width <= 0 || source.height <= 0) {
+    throw new Error("source dimensions must be > 0");
+  }
+  if (box.width <= 0 || box.height <= 0) {
+    throw new Error("target box dimensions must be > 0");
+  }
+
+  const scale = Math.min(box.width / source.width, box.height / source.height);
+  const width = source.width * scale;
+  const height = source.height * scale;
+  return {
+    x: (box.width - width) / 2,
+    y: (box.height - height) / 2,
+    width,
+    height,
+  };
+}
+
 // coco-ssd's own `minScore` detect() parameter already filters at the model
 // level, but the UI also lets a user raise the confidence threshold after
 // the fact (re-filtering already-computed detections is instant; re-running

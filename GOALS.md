@@ -9,12 +9,16 @@ conventions in `E:\CLAUDE\COMPANY\GOALS.md`.
 ## Active goals
 
 ### G-001 · Client-side object splitter & background remover — ACTIVE
-- **What:** Two tools: an object splitter (`/object-splitter`) that detects
-  the distinct objects in an uploaded photo using TensorFlow.js + coco-ssd
-  and exports each selected one as its own PNG (optionally with the
-  background removed), and a standalone background remover
-  (`/background-remover`) using `@imgly/background-removal`. Both run
-  entirely client-side — no server-side image processing, no uploads.
+- **What:** Three tools: an object splitter (`/object-splitter`) that
+  detects the distinct objects in an uploaded photo using TensorFlow.js +
+  coco-ssd and exports each selected one as its own PNG (optionally with the
+  background removed, optionally resized to fit a box); a background-color
+  splitter (`/split-by-color`, added 2026-09-08, Owner-directed) that cuts
+  apart an icon/sprite sheet by connected-component color segmentation — no
+  AI, a deliberately different technique for a different image domain than
+  coco-ssd covers; and a standalone background remover (`/background-remover`)
+  using `@imgly/background-removal`. All three run entirely client-side —
+  no server-side image processing, no uploads.
 - **Why:** svc-lab backlog idea #11 — **Owner-directed** (chat, 2026-09-08),
   not from the usual research-pass ranking; explicitly prioritized ahead of
   the rest of the backlog. First ML-based tool in the svc-lab portfolio, a
@@ -53,11 +57,46 @@ conventions in `E:\CLAUDE\COMPANY\GOALS.md`.
       (D5: the D3 blob-URL fix's promised cleanup was never actually
       implemented), then shipped: `init-repo.ps1`, `deploy-service.ps1`,
       hub-page/sitemap-index update. ✔ 2026-09-08.
-- [ ] M4 — Monetization once AdSense approves this domain (blocked on the
+- [x] M4 — Owner-directed additions (same day, 2026-09-08): a shared
+      "resize exports to fit a box" step (contain-fit, transparent or
+      solid-color letterbox) added to object-splitter, and a new
+      background-color-splitter tool (`/split-by-color`) for icon/sprite
+      sheets — deliberately non-AI (connected-component color
+      segmentation), after the Owner asked whether the AI-based object
+      splitter would handle "an icon set on a single color background" (it
+      wouldn't — see HANDOVER.md D7). Built, unit- and e2e-tested (62 unit
+      tests total, 12 e2e including two manual real-browser pixel-level
+      checks), shipped. ✔ 2026-09-08.
+- [ ] M5 — Monetization once AdSense approves this domain (blocked on the
       Owner/Google, same as every other svc-lab service — already wired
       via the shared `ADSENSE_PUBLISHER_ID` env var).
 
 **Progress log** (newest first):
+- 2026-09-08 — Added the resize-to-box export step and the split-by-color
+  tool (both Owner-directed, see M4 above). Full detail in HANDOVER.md's D6
+  and D7. Verification: `npx eslint .` clean, `npx vitest run` 62/62 passing
+  (19 new for `lib/color-segmenter.ts`, 7 new for `computeContainFit`),
+  `npm run build` clean (new `/split-by-color` route prerenders), full
+  `npx playwright test` 12/12 passing (5 new split-by-color tests against an
+  in-test-generated synthetic PNG fixture, no model download needed for
+  those). Beyond the automated suite, did two manual real-browser checks
+  Playwright's own assertions couldn't cover without a full PNG decoder:
+  read a downloaded resized export's actual pixel colors with PowerShell's
+  `System.Drawing` (confirmed the letterbox fill color rendered correctly,
+  not just the output dimensions), and did the same for a split-by-color
+  transparency export (confirmed an actually-transparent corner alongside
+  an actually-opaque, correctly-colored center pixel). Refactored
+  `object-splitter-tool.tsx` to share `lib/trigger-download.ts` and
+  `app/_components/resize-controls.tsx` with the new tool rather than
+  duplicating ~100 lines of identical download/resize-UI logic; its
+  existing e2e tests were re-run unchanged afterward to confirm no
+  behavior change. Not treated as needing a `domain-expert` review (see
+  HANDOVER.md D7 for the reasoning — this is a software/CS technique, not a
+  physical/chemical/biological/craft domain claim); the FAQ instead
+  honestly discloses the technique's real limits (touching/overlapping
+  items merge; a non-uniform background is harder to match). Hub page,
+  sitemap, and own-project metadata updated for the new tool. Not yet
+  redeployed to production as of this log entry — see next step.
 - 2026-09-08 — Shipped by an interactive session resuming from the prior
   run's session-budget stop. Before trusting the unverified D3 fixes,
   reviewed the actual code diff (not just the run's own description) and
