@@ -1,0 +1,19 @@
+# No database — this tool is fully client-side/stateless.
+services:
+  # Production-style app container — opt in with:
+  #   docker compose --profile app up -d --build
+  # (dev flow is just `npm run dev`, no compose needed)
+  app:
+    profiles: ["app"]
+    build: .
+    restart: unless-stopped
+    environment:
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      GOOGLE_SITE_VERIFICATION: ${GOOGLE_SITE_VERIFICATION:-}
+      ADSENSE_PUBLISHER_ID: ${ADSENSE_PUBLISHER_ID:-}
+    ports:
+      # 30120 — next free port per COMPANY/INFRASTRUCTURE_DEPLOY.md's
+      # registry as of 2026-09-08 (last used: 30110, epub-metadata-fixer).
+      # deploy-service.ps1 independently re-verifies this is actually free
+      # on the live host before using it.
+      - "127.0.0.1:30120:3000"

@@ -1,0 +1,258 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import type { Detection, ImageSize } from "@/lib/types";
+import { detectObjects } from "@/lib/object-detector";
+import { cropToPngBytes, loadImageFromFile } from "@/lib/crop-image";
+import { removeImageBackground } from "@/lib/background-remover";
+import { buildZip } from "@/lib/zip-export";
+import { assignPerClassIndices, buildExportFilename, padAndClampBox } from "@/lib/geometry";
+import { ImageFileInput } from "./image-file-input";
+
+type Status = "idle" | "loading-model" | "detecting" | "ready" | "no-objects" | "error";
+
+// Cycled by detection index so each bounding box and its matching list item
+// share a color — purely a visual correlation aid, has no effect on export.
+const BOX_COLORS = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#9333ea", "#0891b2", "#db2777", "#65a30d"];
+
+// coco-ssd is run once at this low threshold so the confidence slider can
+// re-filter already-computed detections instantly, without re-running the
+// model — see the slider's own onChange handler below.
+const DETECT_MIN_SCORE = 0.3;
+
+export function ObjectSplitterTool() {
+  const [status, setStatus] = useState<Status>("idle");
+  const [error, setError] = useState<string | null>(null);
+  const [imageEl, setImageEl] = useState<HTMLImageElement | null>(null);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [imageSize, setImageSize] = useState<ImageSize>({ width: 0, height: 0 });
+  const [detections, setDetections] = useState<Detection[]>([]);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [minScore, setMinScore] = useState(0.5);
+  const [paddingRatio, setPaddingRatio] = useState(0.1);
+  const [removeBackground, setRemoveBackground] = useState(false);
+  const [exporting, setExporting] = useState<string | null>(null);
+
+  const perClassIndices = useMemo(() => assignPerClassIndices(detections), [detections]);
+
+  async function handleFile(file: File) {
+    setError(null);
+    setDetections([]);
+    setSelected(new Set());
+    setStatus("loading-model");
+    try {
+      const image = await loadImageFromFile(file);
+      setImageEl(image);
+      setImageUrl(image.src);
+      const size = { width: image.naturalWidth, height: image.naturalHeight };
+      setImageSize(size);
+
+      setStatus("detecting");
+      const found = await detectObjects(image, DETECT_MIN_SCORE);
+      if (found.length === 0) {
+        setStatus("no-objects");
+        return;
+      }
+      setDetections(found);
+      setSelected(new Set(found.map((_, i) => i)));
+      setStatus("ready");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't process this photo.");
+      setStatus("error");
+    }
+  }
+
+  function toggleSelected(index: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  }
+
+  const visibleIndices = detections
+    .map((d, i) => i)
+    .filter((i) => detections[i].score >= minScore);
+
+  function selectAll() {
+    setSelected(new Set(visibleIndices));
+  }
+  function deselectAll() {
+    setSelected(new Set());
+  }
+
+  async function exportOne(index: number): Promise<{ filename: string; bytes: Uint8Array }> {
+    const detection = detections[index];
+    if (!imageEl) throw new Error("No image loaded.");
+    const box = padAndClampBox(detection.bbox, paddingRatio, imageSize);
+    let bytes = await cropToPngBytes(imageEl, box);
+    if (removeBackground) {
+      bytes = await removeImageBackground(bytes, "image/png");
+    }
+    const filename = buildExportFilename(detection.className, perClassIndices[index], "png");
+    return { filename, bytes };
+  }
+
+  async function handleExportSelected() {
+    const indices = visibleIndices.filter((i) => selected.has(i));
+    if (indices.length === 0) return;
+    setError(null);
+    try {
+      if (indices.length === 1) {
+        setExporting("Processing…");
+        const { filename, bytes } = await exportOne(indices[0]);
+        triggerDownload(bytes, filename, "image/png");
+      } else {
+        const entries: { filename: string; data: Uint8Array }[] = [];
+        for (let n = 0; n < indices.length; n++) {
+          setExporting(`Processing ${n + 1}/${indices.length}…`);
+          const { filename, bytes } = await exportOne(indices[n]);
+          entries.push({ filename, data: bytes });
+        }
+        setExporting("Building zip…");
+        const zipBytes = await buildZip(entries);
+        triggerDownload(zipBytes, "objects.zip", "application/zip");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't export the selected objects.");
+    } finally {
+      setExporting(null);
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <ImageFileInput onFile={handleFile} label="Choose a photo" />
+
+      {error && (
+        <p className="text-sm text-red-700" role="alert">
+          {error}
+        </p>
+      )}
+
+      <div data-testid="status" className="text-sm text-gray-500">
+        {status === "loading-model" && "Loading the detection model (first use downloads it, then it's cached)…"}
+        {status === "detecting" && "Detecting objects…"}
+        {status === "no-objects" && "No recognizable objects found in this photo (the detector recognizes 80 common object types)."}
+      </div>
+
+      {imageUrl && imageSize.width > 0 && detections.length > 0 && (
+        <div className="space-y-4">
+          <div className="relative inline-block max-w-full">
+            {/* eslint-disable-next-line @next/next/no-img-element -- a locally created object URL, not an optimizable remote asset */}
+            <img src={imageUrl} alt="Uploaded photo" className="max-w-full rounded border border-gray-200" />
+            {visibleIndices.map((i) => {
+              const d = detections[i];
+              const color = BOX_COLORS[i % BOX_COLORS.length];
+              return (
+                <div
+                  key={i}
+                  data-testid={`box-${i}`}
+                  style={{
+                    position: "absolute",
+                    left: `${(d.bbox.x / imageSize.width) * 100}%`,
+                    top: `${(d.bbox.y / imageSize.height) * 100}%`,
+                    width: `${(d.bbox.width / imageSize.width) * 100}%`,
+                    height: `${(d.bbox.height / imageSize.height) * 100}%`,
+                    border: `2px solid ${color}`,
+                    opacity: selected.has(i) ? 1 : 0.35,
+                  }}
+                />
+              );
+            })}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-4 text-sm">
+            <label className="flex items-center gap-2">
+              <span className="text-gray-600">Minimum confidence: {Math.round(minScore * 100)}%</span>
+              <input
+                type="range"
+                min={0.3}
+                max={0.95}
+                step={0.05}
+                value={minScore}
+                onChange={(e) => setMinScore(Number(e.target.value))}
+                aria-label="Minimum confidence"
+              />
+            </label>
+            <label className="flex items-center gap-2">
+              <span className="text-gray-600">Padding: {Math.round(paddingRatio * 100)}%</span>
+              <input
+                type="range"
+                min={0}
+                max={0.3}
+                step={0.05}
+                value={paddingRatio}
+                onChange={(e) => setPaddingRatio(Number(e.target.value))}
+                aria-label="Padding around each object"
+              />
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={removeBackground}
+                onChange={(e) => setRemoveBackground(e.target.checked)}
+                aria-label="Remove background from exported crops"
+              />
+              <span className="text-gray-600">Remove background from exports</span>
+            </label>
+          </div>
+
+          <ul className="space-y-2">
+            {visibleIndices.map((i) => {
+              const d = detections[i];
+              const color = BOX_COLORS[i % BOX_COLORS.length];
+              return (
+                <li key={i} className="flex items-center justify-between gap-3 rounded border border-gray-200 p-2">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(i)}
+                      onChange={() => toggleSelected(i)}
+                      aria-label={`Select ${d.className} ${perClassIndices[i]}`}
+                    />
+                    <span className="h-3 w-3 rounded-full" style={{ backgroundColor: color }} />
+                    <span className="capitalize">
+                      {d.className} {perClassIndices[i]}
+                    </span>
+                    <span className="text-xs text-gray-500">{Math.round(d.score * 100)}%</span>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button type="button" onClick={selectAll} className="rounded border border-gray-300 px-3 py-1.5 text-sm hover:border-gray-500">
+              Select all
+            </button>
+            <button type="button" onClick={deselectAll} className="rounded border border-gray-300 px-3 py-1.5 text-sm hover:border-gray-500">
+              Deselect all
+            </button>
+            <button
+              type="button"
+              onClick={handleExportSelected}
+              disabled={exporting !== null || selected.size === 0}
+              className="rounded-md bg-blue-700 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-gray-300"
+            >
+              {exporting ?? `Download selected (${selected.size})`}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function triggerDownload(bytes: Uint8Array, filename: string, mimeType: string) {
+  const blob = new Blob([bytes.slice() as BlobPart], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
+}

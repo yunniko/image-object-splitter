@@ -1,0 +1,164 @@
+# Handover — image-object-splitter
+
+Read this before touching the project. Goal in `GOALS.md` (G-001). Parent
+initiative in `E:\CLAUDE\projects\svc-lab\`; company-wide standards in
+`E:\CLAUDE\COMPANY\`.
+
+## Current state
+
+Built by the svc-lab daily automation loop, 2026-09-08. Two tools, no
+database, no accounts, no server-side computation of any kind — detection,
+cropping, and background removal all run on-device via TensorFlow.js and
+`@imgly/background-removal`. The first ML-based service in the svc-lab
+portfolio (every prior service was a pure-calculation calculator/converter/
+generator).
+
+## How things fit together
+
+- `lib/types.ts` — shared `BoundingBox`/`ImageSize`/`Detection` types.
+- `lib/geometry.ts` — pure, unit-tested crop math: `padAndClampBox` (expand
+  a detection's box by a padding ratio, clamp to the image's own bounds so
+  a crop can never read outside the source image's real pixel data),
+  filename slugification, and per-class export numbering
+  (`assignPerClassIndices` — "cat-1.png", "cat-2.png", not overall-index
+  numbering that leaves gaps between classes).
+- `lib/zip-export.ts` — a thin JSZip wrapper that takes/returns raw
+  `Uint8Array`, not a browser `Blob`, so it works identically in Node
+  (Vitest) and the browser.
+- `lib/object-detector.ts` — dynamically imports TensorFlow.js + coco-ssd
+  (lazy, cached module-level promise) and maps coco-ssd's own prediction
+  shape to this project's `Detection` type. Uses the `lite_mobilenet_v2`
+  base model — coco-ssd's smallest/fastest option.
+- `lib/crop-image.ts` — canvas-based cropping (`cropToPngBytes`) and
+  `loadImageFromFile` (File → HTMLImageElement via an object URL).
+- `lib/background-remover.ts` — wraps `@imgly/background-removal`. Takes/
+  returns raw bytes plus an explicit MIME type (see D2 for why the MIME
+  type can't be skipped). Shared by both tools: the background-remover
+  page runs it on a whole uploaded photo; the object-splitter runs it
+  per-crop when the user opts in.
+- `app/_components/object-splitter-tool.tsx` — the heavier of the two UI
+  components: detects on file upload, renders bounding boxes as
+  percentage-positioned absolutely-positioned `<div>`s over the displayed
+  `<img>` (works at any rendered size without tracking pixel dimensions —
+  see D4), lets the user filter by confidence, adjust padding, toggle
+  per-export background removal, and export a single PNG or a zip.
+- `app/_components/background-remover-tool.tsx` — simpler: upload → run
+  `removeImageBackground` on the whole file → preview over a checkerboard
+  (CSS gradient, no image asset) → download PNG.
+- Each `app/<tool>/page.tsx` carries SEO metadata, FAQ copy, and JSON-LD;
+  the interactive tool itself lives in `app/_components/`.
+
+## Decision record
+
+**D1 — The Playwright e2e fixture is a real photo (the standard COCO
+"two cats on a couch" demo image, `http://images.cocodataset.org/val2017/
+000000039769.jpg`), fetched on demand rather than committed to git.**
+Testing real object detection needs a real, recognizable photograph — a
+procedurally-generated or hand-drawn test image would not reliably trigger
+a real trained CNN's detections, and mocking the model out entirely would
+mean never verifying the actual TensorFlow.js/coco-ssd integration works
+end to end (the pipeline's whole value proposition). This specific image is
+the field's de facto standard object-detection demo/test image (used
+throughout Hugging Face's and other ML frameworks' own documentation) and
+is served by the COCO dataset's own public server specifically for this
+kind of use. It was **not** committed to this project's public repo,
+though: COCO images are individually sourced from Flickr under a mix of
+per-photo Creative Commons licenses that weren't individually verified for
+this specific image, and every other svc-lab repo is public. Instead,
+`scripts/fetch-test-fixtures.mjs` downloads it into `tests/e2e/fixtures/`
+(gitignored) on demand — the same "generate/fetch fixtures, don't commit
+them" pattern `epub-metadata-fixer` used for its own synthetic fixtures,
+adapted here because this fixture has to be a real photo rather than
+something this project can generate itself. `tests/e2e/*.spec.ts` throw a
+clear error naming the exact command to run if the fixture is missing,
+rather than silently skipping the test.
+
+**D2 — Three real integration bugs against `@imgly/background-removal`
+were caught by actually building and running the code, not by trusting
+WebSearch-sourced documentation (WebFetch to the package's own README was
+denied this run, same limitation as every other svc-lab service).** All
+three are logged in `lib/background-remover.ts`'s own header comment too,
+since a future change to this file needs to know them:
+  1. **Wrong export name.** Search summaries described a default export
+     (`imglyRemoveBackground`). The package's actual root `index.d.ts` does
+     `export * from './api/v1'`, which per ES module semantics never
+     re-exports a default binding — only the named export `removeBackground`
+     is available from the package root. Caught by `npm run build`'s
+     TypeScript check ("This expression is not callable").
+  2. **Wrong `model` config values.** Search summaries described `"small"`/
+     `"medium"`. The actual `Config.model` enum (read from the package's own
+     shipped `dist/src/schema.d.ts`) is `"isnet" | "isnet_fp16" |
+     "isnet_quint8"`. Also caught by the same build-time type check, not
+     discovered by re-reading documentation.
+  3. **A real bug in the library itself**, not just a usage mistake here:
+     passing a bare `Uint8Array` (which the library's own `ImageSource` type
+     declares as accepted) fails at runtime. `imageSourceToImageData` in
+     `dist/index.mjs` does `new Blob([image])` with no `type` set when given
+     an ArrayBuffer/TypedArray, then `imageDecode` switches purely on
+     `blob.type` with **no magic-byte sniffing** — an untyped Blob always
+     hits the `default` case and throws `Invalid format: with params:
+     [object Object]`. This was NOT caught by the build (it's a runtime
+     failure, and TypeScript has no way to know the type is technically
+     accepted but practically broken) — it was caught by an actual failing
+     Playwright e2e run against the real photo fixture, exactly the kind of
+     bug VALUES.md's "done means verified by actually running it" principle
+     exists to catch. Worked around by changing `removeImageBackground`'s
+     signature to require the caller's real MIME type and constructing a
+     correctly-typed `Blob` before calling the library, rather than ever
+     passing raw bytes to it.
+  The lesson generalized: for this project specifically, and worth
+  remembering for any future svc-lab service that integrates a third-party
+  ML/WASM library, a library's own shipped `.d.ts` is more trustworthy than
+  search-engine summaries of its README, but neither substitutes for an
+  actual failing run against real input — this bug's type signature was
+  perfectly valid TypeScript and still broken at runtime.
+
+**D3 — Domain-expert review requested for computer-vision/image-processing
+claims, not skipped the way `fraction-calculator`'s pure-arithmetic build
+was.** Unlike a "pure math, no domain claim" tool, this project makes
+several claims a reviewer with real CV/image-processing background can
+check that a software-focused review wouldn't necessarily catch: EXIF
+orientation handling in canvas-based cropping (a classic real bug class —
+whether `HTMLImageElement`'s `naturalWidth`/`naturalHeight` and
+`drawImage()` already reflect EXIF auto-rotation in evergreen browsers, or
+whether this project needs to handle it explicitly), the honesty of the
+"80 object classes, may miss X" disclosure against coco-ssd's actual
+real-world limitations, and PNG alpha-channel correctness through the
+crop → optional-background-removal → zip pipeline. See
+`docs/domain-reference.md` for the review once run, and the entry that
+follows this one for its outcome.
+
+**D4 — Bounding-box overlays are positioned with CSS percentages of a
+wrapper sized to the displayed `<img>`, not by tracking the image's
+rendered pixel dimensions.** Since `box.x / imageSize.width * 100` (etc.)
+as a percentage of an absolutely-positioned parent that's exactly the
+rendered size of the `<img>` scales correctts regardless of actual on-screen
+size (responsive layout, window resize, high-DPI), this avoids needing a
+`ResizeObserver` or any pixel-tracking logic entirely — simpler and can't
+drift out of sync with a resize the way a cached-pixel-size approach could.
+
+## Owner action list
+
+- AdSense approval status for this domain is unconfirmed, same as every
+  other svc-lab service — ask the Owner to check the AdSense dashboard.
+
+## Next steps and open questions
+
+- `lib/object-detector.ts` always loads the `lite_mobilenet_v2` base model
+  at a fixed 0.3 detect-time threshold, with the UI-side confidence slider
+  re-filtering client-side afterward. If traffic ever justifies it, a
+  "more accurate" mode using coco-ssd's larger `mobilenet_v2` base could be
+  offered as an opt-in — not built this run to keep the initial model
+  download small for every user by default.
+- No IANA-registry-style validation of upload file type beyond the file
+  picker's own `accept` attribute (which a user can override) — an
+  unsupported format simply surfaces as this project's own "Couldn't
+  process this photo" / "Couldn't read this file as an image" error
+  messages rather than a more specific one. Acceptable for a first ship;
+  revisit if real users report confusing failures.
+- If this service's traffic justifies more investment, consider adding
+  per-object live thumbnail previews to the selection list (currently just
+  a color-coded label + confidence %, no cropped preview) — deferred this
+  run to keep scope to a single day's build given the two tools' combined
+  size, per the backlog note's own "budget more of the day's session for
+  this" guidance.

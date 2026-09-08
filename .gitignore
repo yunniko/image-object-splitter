@@ -1,0 +1,10 @@
+node_modules/
+.next/
+out/
+test-results/
+playwright-report/
+*.tsbuildinfo
+.env
+.env.local
+tests/e2e/fixtures/*.jpg
+tests/e2e/fixtures/*.png
