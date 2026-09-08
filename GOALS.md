@@ -44,9 +44,9 @@ conventions in `E:\CLAUDE\COMPANY\GOALS.md`.
       name, wrong `model` enum values, and a library bug where a bare
       Uint8Array/ArrayBuffer input silently fails to decode) — see
       HANDOVER.md D2. ✔ 2026-09-08.
-- [ ] M2 — Domain-expert review of the computer-vision/image-processing
-      claims (detection-class honesty, privacy claim, crop/EXIF-orientation
-      correctness, PNG alpha handling) — see HANDOVER.md D3 once complete.
+- [x] M2 — Domain-expert review complete, found and fixed 3 real bugs
+      (NMS threshold coupling, revoked blob URL, crop-rounding overflow) —
+      see HANDOVER.md D3 and docs/domain-reference.md. ✔ 2026-09-08.
 - [ ] M3 — Security review, then ship (git init, `init-repo.ps1`,
       `deploy-service.ps1`, hub-page/sitemap-index update, SEO review).
 - [ ] M4 — Monetization once AdSense approves this domain (blocked on the
@@ -54,6 +54,31 @@ conventions in `E:\CLAUDE\COMPANY\GOALS.md`.
       via the shared `ADSENSE_PUBLISHER_ID` env var).
 
 **Progress log** (newest first):
+- 2026-09-08 — **BLOCKED (session budget)**, same pattern as
+  `epub-metadata-fixer`'s earlier stop. Domain-expert review completed and
+  found 3 real, source-verified bugs (not documentation gaps): coco-ssd's
+  `infer()` passes `minScore` as both the score and IoU threshold to NMS,
+  so this project's original "detect low, filter later" design silently
+  mis-suppressed overlapping objects — fixed by always detecting at
+  coco-ssd's own default (0.5); a revoked-blob-URL bug that could break the
+  preview image; and a 1px crop-rounding overflow. All three fixed and
+  committed. Manual security-review equivalent done (same tooling gap as
+  epub-metadata-fixer: `/security-review`'s `origin/HEAD` precondition
+  can't run before a remote exists) — no findings (no API routes, no
+  secrets, the only `dangerouslySetInnerHTML` is the shared JSON-LD
+  helper). **Not done this run, due to session budget running out before
+  it**: independently re-verifying the fixes with a fresh `npm run build`
+  + full Playwright e2e pass (only unit tests + ESLint were re-run after
+  the fixes — both clean), `init-repo.ps1`/`deploy-service.ps1`, the
+  hub-page/sitemap-index update, and the SEO review. Two items from the
+  domain-expert review deliberately deferred rather than rushed: a
+  downscale guard against OOM on very large photos, and fuller FAQ
+  disclosure of the background-remover's fur/hair edge-quality tradeoff —
+  see docs/domain-reference.md's "Next steps." **Next session should
+  resume from here**: run `npm run build && npx playwright test` fresh to
+  confirm the three fixes didn't regress anything, then proceed to ship
+  (M3). Nothing has left the workspace — only a local git commit exists,
+  no GitHub repo, no VPS deploy.
 - 2026-09-08 — M1/M1b complete (svc-lab daily automation run). Built both
   tools end to end. `npm run build` and a real Playwright e2e run against
   the real photo fixture (see HANDOVER.md D1 for its sourcing) each caught
