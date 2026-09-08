@@ -481,6 +481,72 @@ other model is chosen for background remover."**
     confirms a second real model run completes and the prompt clears
     afterward — a real two-model-download test (~46-50s), not mocked.
 
+**D11 — Extended D9/D10's "no silent traffic" bar to the object splitter's
+own AI model (Owner directive, 2026-09-09): "For ML object search we need
+to notify users how much tra[ff]ic they will spend on downloading the ML
+library (and tell if it is already downloaded). Status of operation should
+be shown as well. And background remover size should be shown before the
+download start (somewhere among remove background options). Check all of
+those pages."** Audited every model-download point in the project:
+  - **`/object-splitter`'s coco-ssd detector had zero disclosure at all**
+    before this — the model silently downloaded the moment a photo was
+    uploaded, with only a generic "Loading the detection model…" string,
+    no size, no cached-hint, no real status. Real size verified the same
+    way as D9 (not estimated): coco-ssd's own default model URL
+    (`https://storage.googleapis.com/tfjs-models/savedmodel/
+    ssdlite_mobilenet_v2/`, confirmed by reading the vendored
+    `@tensorflow-models/coco-ssd` source — the URL isn't version-scoped in
+    the package the way `@imgly/background-removal`'s CDN path is, so
+    re-verify against that exact URL if coco-ssd or its base model ever
+    changes) serves a `model.json` manifest (527,315 bytes, confirmed via
+    `curl -sI`) plus 5 weight shards (4,194,304 bytes × 4 + 1,257,312 —
+    each shard's real path has **no `.bin` extension**, confirmed only
+    after a first guess with `.bin` 404'd) — 18,561,843 bytes total
+    (~17.7 MB, shown as "18 MB" rounded). `lib/object-detector.ts` now
+    exports `DETECTION_MODEL_SIZE_BYTES` plus the same honest localStorage-
+    hint pair (`hasLikelyDownloadedDetectionModel`/
+    `subscribeToDetectionModelDownloadHint`) used in D9, and
+    `detectObjects` takes an optional `onProgress` callback.
+  - **coco-ssd's own public API has no progress hook** (verified against
+    source — its `load()` calls `tf.loadGraphModel(this.modelPath)` with no
+    options object at all, unlike `@imgly/background-removal`'s documented
+    `Config.progress`). Rather than build a fragile pre-fetch-then-let-
+    coco-ssd-refetch-from-cache workaround for a numeric bar, this uses the
+    same honest indeterminate-progress fallback the Owner already accepted
+    as sufficient in the original D9 request ("or at least a preparing
+    status with loader icon") — a real phase label
+    ("Downloading the detection model (18 MB)…" then "Detecting
+    objects…") plus the shared `&lt;Spinner&gt;` and an indeterminate
+    `&lt;progress&gt;`, not a fabricated percentage.
+  - **The size-before-download-starts gap the Owner specifically named
+    ("background remover size... among remove background options")** was
+    the object-splitter's own "Remove background from exports" checkbox —
+    it uses the same `@imgly/background-removal` pipeline as the
+    standalone page (D9) but had never shown a size, since D9 only touched
+    the dedicated `/background-remover` page. Now shows the shared
+    `DEFAULT_MODEL_TIER`'s real size (from D9's `MODEL_TIERS`) and its
+    "downloaded before" hint right next to the checkbox label, reusing
+    `hasLikelyDownloadedModel`/`subscribeToModelDownloadHints` rather than
+    duplicating that machinery per model.
+  - **`/split-by-color` audited and confirmed out of scope**: it has no ML
+    model at all (pure connected-component color segmentation, D7) — no
+    traffic to disclose.
+  - Also fixed a stale, now-misleading FAQ line on `/object-splitter`
+    ("The detection model (a few megabytes)...") that would have
+    contradicted the new precise "18 MB" figure shown right above it.
+  - **Verified**: `npx eslint .`/`npm run build` clean (caught the same
+    TS1501 unsupported-regex-flag class of error as D10, fixed the same
+    way), `npx vitest run` 43/43 (lib-only additions, fully covered by
+    existing test shape — no new unit tests needed since this is
+    string/size constants plus a callback wire-up, not new algorithmic
+    logic), and the existing real-detection e2e test extended (not
+    duplicated) to assert: the real "18 MB" figure renders before upload,
+    no false "already downloaded" claim pre-upload, a real
+    `role=progressbar` appears during detection, the background-removal
+    checkbox's own size text renders once results exist, and — after a
+    real detection run completes and the page is reloaded — the
+    "already downloaded" hint persists.
+
 ## Owner action list
 
 - AdSense approval status for this domain is unconfirmed, same as every

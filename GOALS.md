@@ -72,6 +72,30 @@ conventions in `E:\CLAUDE\COMPANY\GOALS.md`.
       via the shared `ADSENSE_PUBLISHER_ID` env var).
 
 **Progress log** (newest first):
+- 2026-09-09 — Owner asked to extend the "no silent traffic" bar from the
+  background remover (D9) to every model-download point in the project:
+  "notify users how much tra[ff]ic they will spend on downloading the ML
+  library (and tell if it is already downloaded)... status of operation
+  should be shown as well... background remover size should be shown...
+  among remove background options. Check all of those pages." Full detail
+  in HANDOVER.md's D11. Audit found `/object-splitter`'s own coco-ssd
+  detector had *zero* disclosure — it silently downloaded ~17.7 MB (real
+  size, verified against the actual hosted model files, not estimated) the
+  moment a photo was uploaded. Fixed: real size shown before upload, an
+  honest same-browser "already downloaded" hint, and a real status
+  (spinner + phase label) during the actual download/detection — coco-ssd's
+  own library has no byte-progress hook (verified against source), so this
+  uses the same honest indeterminate-progress fallback already accepted for
+  D9. Also fixed the specific gap the Owner named: the object-splitter's
+  "Remove background from exports" checkbox uses the same `@imgly`
+  pipeline as the dedicated background-remover page but never showed its
+  size — now shows the shared default tier's real size and cached-hint
+  right at the checkbox. `/split-by-color` audited and confirmed to have no
+  ML model at all — nothing to disclose there. Verified: `npx eslint .`/
+  `npm run build` clean, `npx vitest run` 43/43, and the existing real
+  object-detection e2e test extended to check the size notice, the
+  progress bar, the checkbox's own size text, and (via reload) that the
+  "already downloaded" hint persists.
 - 2026-09-09 — Owner asked for two follow-ups on the quality picker: "make
   downloaded options green and make a retry button if other model is
   chosen." Full detail in HANDOVER.md's D10. Downloaded tiers now get a

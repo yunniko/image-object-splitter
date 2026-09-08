@@ -23,7 +23,7 @@ const FAQ = [
   {
     question: "Why does the first detection take a few seconds?",
     answer:
-      "The detection model (a few megabytes) downloads the first time you use the tool in a session and is cached by your browser afterward — later photos in the same session detect faster.",
+      "The detection model is an 18 MB download the first time you use it in a browser (shown above the upload button) and is cached afterward — later photos in the same session, or a later visit, detect faster. Turning on \"Remove background from exports\" downloads a separate, larger AI model the first time you use it, sized the same way.",
   },
   {
     question: "What does the padding slider do?",

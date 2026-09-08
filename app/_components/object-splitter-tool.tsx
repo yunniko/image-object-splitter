@@ -1,16 +1,34 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Detection, ImageSize } from "@/lib/types";
-import { detectObjects } from "@/lib/object-detector";
+import {
+  DETECTION_MODEL_SIZE_BYTES,
+  detectObjects,
+  hasLikelyDownloadedDetectionModel,
+  subscribeToDetectionModelDownloadHint,
+  type DetectionProgress,
+} from "@/lib/object-detector";
 import { cropToPngBytes, loadImageFromFile, parseResizeTarget, resizeBytesToBox, type ResizeTarget } from "@/lib/crop-image";
-import { removeImageBackground } from "@/lib/background-remover";
+import {
+  DEFAULT_MODEL_TIER,
+  MODEL_TIERS,
+  hasLikelyDownloadedModel,
+  removeImageBackground,
+  subscribeToModelDownloadHints,
+} from "@/lib/background-remover";
 import { buildZip } from "@/lib/zip-export";
 import { triggerDownload } from "@/lib/trigger-download";
 import { assignPerClassIndices, buildExportFilename, padAndClampBox } from "@/lib/geometry";
 import { ImageFileInput } from "./image-file-input";
 import { ResizeControls } from "./resize-controls";
 import { Spinner } from "./spinner";
+
+const BG_REMOVER_DEFAULT_TIER_INFO = MODEL_TIERS.find((tier) => tier.model === DEFAULT_MODEL_TIER)!;
+
+function formatMB(bytes: number): string {
+  return `${Math.round(bytes / 1024 / 1024)} MB`;
+}
 
 type Status = "idle" | "loading-model" | "detecting" | "ready" | "no-objects" | "error";
 
@@ -48,6 +66,20 @@ export function ObjectSplitterTool() {
   const [resizeFill, setResizeFill] = useState<"transparent" | "color">("transparent");
   const [resizeColor, setResizeColor] = useState("#ffffff");
   const [exporting, setExporting] = useState<string | null>(null);
+  const [detectionProgress, setDetectionProgress] = useState<DetectionProgress | null>(null);
+  // Same honest, same-browser-only "downloaded before" hint pattern as
+  // lib/background-remover.ts's MODEL_TIERS picker — see
+  // hasLikelyDownloadedDetectionModel's own comment for the caveat.
+  const isDetectionModelDownloaded = useSyncExternalStore(
+    subscribeToDetectionModelDownloadHint,
+    hasLikelyDownloadedDetectionModel,
+    () => false,
+  );
+  const isBgRemoverModelDownloaded = useSyncExternalStore(
+    subscribeToModelDownloadHints,
+    () => hasLikelyDownloadedModel(DEFAULT_MODEL_TIER),
+    () => false,
+  );
   // Tracks the currently-live object URL so it can be revoked exactly once
   // it's no longer referenced by anything (a new photo replacing it, or
   // this component unmounting) - not revoked in loadImageFromFile itself,
@@ -67,6 +99,7 @@ export function ObjectSplitterTool() {
     setError(null);
     setDetections([]);
     setSelected(new Set());
+    setDetectionProgress(null);
     setStatus("loading-model");
     try {
       const { image, objectUrl } = await loadImageFromFile(file);
@@ -78,7 +111,7 @@ export function ObjectSplitterTool() {
       setImageSize(size);
 
       setStatus("detecting");
-      const found = await detectObjects(image, DETECT_MIN_SCORE);
+      const found = await detectObjects(image, DETECT_MIN_SCORE, setDetectionProgress);
       if (found.length === 0) {
         setStatus("no-objects");
         return;
@@ -89,6 +122,8 @@ export function ObjectSplitterTool() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't process this photo.");
       setStatus("error");
+    } finally {
+      setDetectionProgress(null);
     }
   }
 
@@ -166,15 +201,33 @@ export function ObjectSplitterTool() {
     <div className="space-y-6">
       <ImageFileInput onFile={handleFile} label="Choose a photo" />
 
+      <p className="text-xs" data-testid="detection-model-notice">
+        {isDetectionModelDownloaded ? (
+          <span className="text-green-700">Object-detection AI model already downloaded in this browser.</span>
+        ) : (
+          <span className="text-gray-500">
+            Uploading a photo downloads the object-detection AI model ({formatMB(DETECTION_MODEL_SIZE_BYTES)}) the
+            first time in this browser.
+          </span>
+        )}
+      </p>
+
       {error && (
         <p className="text-sm text-red-700" role="alert">
           {error}
         </p>
       )}
 
-      <div data-testid="status" className="text-sm text-gray-500">
-        {status === "loading-model" && "Loading the detection model (first use downloads it, then it's cached)…"}
-        {status === "detecting" && "Detecting objects…"}
+      <div data-testid="status" className="space-y-2 text-sm text-gray-500">
+        {(status === "loading-model" || status === "detecting") && (
+          <>
+            <div className="flex items-center gap-2">
+              <Spinner />
+              <span>{detectionProgress?.label ?? "Preparing…"}</span>
+            </div>
+            <progress className="h-2 w-full max-w-xs" aria-label="Progress" />
+          </>
+        )}
         {status === "no-objects" && "No recognizable objects found in this photo (the detector recognizes 80 common object types)."}
       </div>
 
@@ -236,7 +289,13 @@ export function ObjectSplitterTool() {
                 onChange={(e) => setRemoveBackground(e.target.checked)}
                 aria-label="Remove background from exported crops"
               />
-              <span className="text-gray-600">Remove background from exports</span>
+              <span className="text-gray-600">
+                Remove background from exports{" "}
+                <span className={isBgRemoverModelDownloaded ? "text-green-700" : "text-gray-400"}>
+                  (downloads a {formatMB(BG_REMOVER_DEFAULT_TIER_INFO.downloadBytes)} AI model the first time
+                  {isBgRemoverModelDownloaded ? ", already downloaded in this browser" : ""})
+                </span>
+              </span>
             </label>
           </div>
 
