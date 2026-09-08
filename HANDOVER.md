@@ -6,9 +6,14 @@ initiative in `E:\CLAUDE\projects\svc-lab\`; company-wide standards in
 
 ## Current state
 
-Built by the svc-lab daily automation loop, 2026-09-08. Two tools, no
-database, no accounts, no server-side computation of any kind — detection,
-cropping, and background removal all run on-device via TensorFlow.js and
+**Live at https://image-object-splitter.svc.julienika.cz** (deployed
+2026-09-08). Built by the svc-lab daily automation loop (which stopped
+safely on session budget after its domain-expert fixes, before
+re-verifying or shipping); an interactive session independently
+re-verified the full suite (catching and fixing one more real bug in
+the process, D5), then shipped. Two tools, no database, no accounts, no
+server-side computation of any kind — detection, cropping, and
+background removal all run on-device via TensorFlow.js and
 `@imgly/background-removal`. The first ML-based service in the svc-lab
 portfolio (every prior service was a pure-calculation calculator/converter/
 generator).
@@ -131,6 +136,24 @@ Deferred to a later session: a downscale guard against OOM on very large
 photos, and a fuller FAQ disclosure of the background-remover's fur/hair
 edge-quality tradeoff. See `docs/domain-reference.md` for the complete
 finding-by-finding detail and reviewer confidence levels.
+
+**D5 — The revoked-blob-URL fix (D3) had an unfulfilled promise: its own
+comment said "the caller owns revoking it — when a new photo replaces
+this one, or on unmount," but no code actually did that.** Found while
+independently re-verifying D3's fixes before shipping (the run that made
+them stopped on session budget before this re-check happened — see
+`GOALS.md`'s progress log). Neither `object-splitter-tool.tsx` nor
+`background-remover-tool.tsx` (same object-URL-for-preview pattern) ever
+called `URL.revokeObjectURL` on the *previous* result when a new one
+replaced it, or on unmount — a real memory leak on repeated use within
+one session (not a correctness bug for a single upload, since browsers
+don't reuse blob URL slots, but blob URLs otherwise live until the page
+unloads). Fixed both components: a ref tracks the current URL, revoked
+right before being replaced by a new one, and in a `useEffect` cleanup
+on unmount. Re-verified with a full fresh `npm run build` +
+`npx playwright test` run (including real on-device model inference
+against the real photo fixture) after this fix plus D3's original
+three — all clean, nothing regressed.
 
 **D4 — Bounding-box overlays are positioned with CSS percentages of a
 wrapper sized to the displayed `<img>`, not by tracking the image's

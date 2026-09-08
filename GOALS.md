@@ -47,13 +47,32 @@ conventions in `E:\CLAUDE\COMPANY\GOALS.md`.
 - [x] M2 — Domain-expert review complete, found and fixed 3 real bugs
       (NMS threshold coupling, revoked blob URL, crop-rounding overflow) —
       see HANDOVER.md D3 and docs/domain-reference.md. ✔ 2026-09-08.
-- [ ] M3 — Security review, then ship (git init, `init-repo.ps1`,
-      `deploy-service.ps1`, hub-page/sitemap-index update, SEO review).
+- [x] M3 — Independently re-verified (fresh `npm run build` + full
+      `npx playwright test` including real on-device model inference —
+      all clean), found and fixed one more real bug in the process
+      (D5: the D3 blob-URL fix's promised cleanup was never actually
+      implemented), then shipped: `init-repo.ps1`, `deploy-service.ps1`,
+      hub-page/sitemap-index update. ✔ 2026-09-08.
 - [ ] M4 — Monetization once AdSense approves this domain (blocked on the
       Owner/Google, same as every other svc-lab service — already wired
       via the shared `ADSENSE_PUBLISHER_ID` env var).
 
 **Progress log** (newest first):
+- 2026-09-08 — Shipped by an interactive session resuming from the prior
+  run's session-budget stop. Before trusting the unverified D3 fixes,
+  reviewed the actual code diff (not just the run's own description) and
+  found a real gap: the revoked-blob-URL fix's own comment promised
+  cleanup ("caller owns revoking it") that no code actually implemented
+  — a real memory leak on repeated uploads in both tools (same pattern
+  in `background-remover-tool.tsx` too, not just the object splitter).
+  Fixed both (D5), then ran the full verification suite fresh from
+  scratch (not trusted from before): ESLint, 17 Vitest tests, a clean
+  production build, and the full Playwright e2e suite including real
+  on-device coco-ssd detection and `@imgly/background-removal` inference
+  against the real photo fixture — all clean. Deployed (port 30120,
+  clean on the first attempt), hub page and sitemap index updated and
+  redeployed, live verified over HTTPS with a real browser check, every
+  other host container's uptime confirmed unaffected.
 - 2026-09-08 — **BLOCKED (session budget)**, same pattern as
   `epub-metadata-fixer`'s earlier stop. Domain-expert review completed and
   found 3 real, source-verified bugs (not documentation gaps): coco-ssd's

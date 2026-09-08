@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Detection, ImageSize } from "@/lib/types";
 import { detectObjects } from "@/lib/object-detector";
 import { cropToPngBytes, loadImageFromFile } from "@/lib/crop-image";
@@ -40,6 +40,18 @@ export function ObjectSplitterTool() {
   const [paddingRatio, setPaddingRatio] = useState(0.1);
   const [removeBackground, setRemoveBackground] = useState(false);
   const [exporting, setExporting] = useState<string | null>(null);
+  // Tracks the currently-live object URL so it can be revoked exactly once
+  // it's no longer referenced by anything (a new photo replacing it, or
+  // this component unmounting) - not revoked in loadImageFromFile itself,
+  // see that function's own comment for why. A plain ref, not state: this
+  // is bookkeeping for cleanup, not something a re-render should depend on.
+  const objectUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+    };
+  }, []);
 
   const perClassIndices = useMemo(() => assignPerClassIndices(detections), [detections]);
 
@@ -50,6 +62,8 @@ export function ObjectSplitterTool() {
     setStatus("loading-model");
     try {
       const { image, objectUrl } = await loadImageFromFile(file);
+      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = objectUrl;
       setImageEl(image);
       setImageUrl(objectUrl);
       const size = { width: image.naturalWidth, height: image.naturalHeight };

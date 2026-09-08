@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { removeImageBackground } from "@/lib/background-remover";
 import { ImageFileInput } from "./image-file-input";
 import { DownloadBlobButton } from "./download-blob-button";
@@ -13,6 +13,16 @@ export function BackgroundRemoverTool() {
   const [resultBytes, setResultBytes] = useState<Uint8Array | null>(null);
   const [resultUrl, setResultUrl] = useState<string | null>(null);
   const [filename, setFilename] = useState("background-removed.png");
+  // Same object-URL lifetime concern as object-splitter-tool.tsx: revoke
+  // the previous result's URL once a new one replaces it, or on unmount,
+  // rather than never (a real leak on repeated use in one session).
+  const objectUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+    };
+  }, []);
 
   async function handleFile(file: File) {
     setError(null);
@@ -24,7 +34,10 @@ export function BackgroundRemoverTool() {
       const inputBytes = new Uint8Array(await file.arrayBuffer());
       const outputBytes = await removeImageBackground(inputBytes, file.type || "image/jpeg");
       setResultBytes(outputBytes);
-      setResultUrl(URL.createObjectURL(new Blob([outputBytes.slice() as BlobPart], { type: "image/png" })));
+      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+      const newUrl = URL.createObjectURL(new Blob([outputBytes.slice() as BlobPart], { type: "image/png" }));
+      objectUrlRef.current = newUrl;
+      setResultUrl(newUrl);
       setStatus("done");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't remove the background from this photo.");
