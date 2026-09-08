@@ -72,6 +72,32 @@ conventions in `E:\CLAUDE\COMPANY\GOALS.md`.
       via the shared `ADSENSE_PUBLISHER_ID` env var).
 
 **Progress log** (newest first):
+- 2026-09-08 — Owner reported real background-remover quality/speed
+  problems (noisy-background cleanliness, holes appearing inside an object
+  when part of it matches the background color even across an outline,
+  and general slowness). Investigated by reading the vendored `@imgly/
+  background-removal` source and fetching its real CDN model-size manifest
+  rather than guessing — full detail in HANDOVER.md's D8. Shipped one
+  verified-safe partial fix (`device: "gpu"` + `proxyToWorker: true`,
+  automatic fallback to today's exact behavior on unsupported browsers —
+  confirmed via source and a real-browser check that a working WebGPU
+  adapter resolves here, though this specific test environment's adapter
+  looks software-emulated so I couldn't confirm a real speed win from it).
+  Two harder findings flagged to the Owner rather than decided
+  unilaterally: enabling WASM multi-threading needs COOP/COEP headers that
+  risk breaking Google AdSense's ad iframes (a real tradeoff given this
+  domain's ads aren't even confirmed rendering yet); and the current
+  `isnet_quint8` model is the library's own lowest-quality tier (42.3 MB)
+  versus its own actual default `isnet_fp16` (84.1 MB) or full `isnet`
+  (168.0 MB) — a genuine download-size/speed/quality tradeoff, not
+  something to pick unilaterally for a free client-side tool. A targeted
+  "fill enclosed alpha holes" post-process was considered for the specific
+  outline-separated-hole symptom and deliberately not built: it can't
+  distinguish that artifact from a legitimate visible-background gap (arm
+  akimbo, fingers, jewelry), and there's no diverse real-photo set here to
+  validate it against either way. Verified: `npx eslint .` clean,
+  `npx vitest run` 43/43, `npm run build` clean, the background-remover
+  e2e test still passes.
 - 2026-09-08 — Added the resize-to-box export step and the split-by-color
   tool (both Owner-directed, see M4 above). Full detail in HANDOVER.md's D6
   and D7. Verification: `npx eslint .` clean, `npx vitest run` 62/62 passing
@@ -95,8 +121,14 @@ conventions in `E:\CLAUDE\COMPANY\GOALS.md`.
   physical/chemical/biological/craft domain claim); the FAQ instead
   honestly discloses the technique's real limits (touching/overlapping
   items merge; a non-uniform background is harder to match). Hub page,
-  sitemap, and own-project metadata updated for the new tool. Not yet
-  redeployed to production as of this log entry — see next step.
+  sitemap, and own-project metadata updated for the new tool. Security-
+  reviewed (a sub-agent pass against the actual committed diff, following
+  `svc-lab\automation\prompt.md`'s pattern — checked the new color-picker/
+  resize inputs against `ctx.fillStyle` and canvas pixel APIs for an
+  injection path; found none — canvas `fillStyle` isn't an HTML/script
+  sink and silently ignores invalid values per spec). Committed, pushed,
+  redeployed (`redeploy-service.ps1`, clean on the first attempt), and
+  verified live at https://image-object-splitter.svc.julienika.cz/split-by-color.
 - 2026-09-08 — Shipped by an interactive session resuming from the prior
   run's session-budget stop. Before trusting the unverified D3 fixes,
   reviewed the actual code diff (not just the run's own description) and

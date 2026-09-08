@@ -282,10 +282,101 @@ opportunity.
     standard workaround for driving a React-controlled input from outside
     simulated typing.
 
+**D8 — Owner reported real quality/speed problems with the AI background
+remover (2026-09-08): unclean results on noisy backgrounds, holes appearing
+inside an object when part of it is close to the background color "even if
+separated by outline," and it being "very slow." Investigated by reading
+the vendored `@imgly/background-removal` source (not guessing) and fetching
+its real model-size manifest — three separate, real findings, not one bug:**
+  1. **Root cause of "very slow" (partially fixed): WASM multi-threading is
+     completely disabled in production.** The library always sets
+     `ort.env.wasm.numThreads = navigator.hardwareConcurrency` (12 in
+     testing), but per its own `schema.ts` transform, that only actually
+     multi-threads when the page is `crossOriginIsolated` — which requires
+     `Cross-Origin-Opener-Policy`/`Cross-Origin-Embedder-Policy` response
+     headers this project doesn't send. Without them, ONNX Runtime Web
+     silently falls back to single-threaded WASM (confirmed via the exact
+     console warning seen in this project's own e2e test output:
+     "WebAssembly multi-threading is not supported in the current
+     environment"). **Not fixed this session** — `Cross-Origin-Embedder-
+     Policy: require-corp` is well-documented to break third-party ad
+     iframes/creatives that don't send `Cross-Origin-Resource-Policy`
+     headers themselves, which describes most of the real-time-bidding
+     ecosystem behind Google AdSense auto-ads. Since this whole svc-lab
+     initiative's monetization depends on AdSense (see `svc-lab/GOALS.md`),
+     and ads on this exact domain are still unconfirmed-rendering as of
+     this session (see `svc-lab/GOALS.md`'s 2026-09-08 AdSense diagnosis
+     entry), trading real, uncertain ad risk for real speed on one tool
+     isn't a call to make unilaterally — flagged to the Owner instead of
+     guessed at. A less strict `credentialless` COEP mode exists and is
+     more third-party-embed-friendly, but its AdSense compatibility isn't
+     something I could verify without live ad traffic to test against.
+  2. **Partial, verified-safe fix shipped: `device: "gpu"` +
+     `proxyToWorker: true` added to `lib/background-remover.ts`'s config.**
+     Per the vendored source, `useWebGPU = config.device === "gpu" &&
+     await webgpu()`, where `webgpu()` safely returns `false` if
+     `navigator.gpu` is undefined or `requestAdapter()` resolves null —
+     this is a strict, side-effect-free upgrade: a browser with real WebGPU
+     support gets real GPU acceleration, everything else transparently
+     keeps today's exact WASM/CPU behavior. Verified: `npm run build`
+     clean, the existing e2e test still passes, and a real (non-headless)
+     Chrome browser in this environment does resolve a working
+     `navigator.gpu.requestAdapter()`. **Could not get a trustworthy
+     before/after speed measurement**, though: a real-browser timing test
+     (cached model, so download time excluded) still took ~22s, no faster
+     than the ~20-24s baseline seen elsewhere this session on the plain
+     WASM path — the test browser's WebGPU adapter reported an empty
+     `info` object, which is the signature of a software-emulated adapter
+     (e.g. SwiftShader) rather than real hardware acceleration, so this
+     environment can't validate the real-world win. The change is kept
+     because it's provably safe either way (falls back cleanly), but its
+     actual benefit for real users on real GPU hardware is unverified from
+     here, not overclaimed as measured.
+  3. **Quality (noisy backgrounds, color-matched holes): NOT changed this
+     session, flagged instead — the real tradeoff is bigger than expected.**
+     The library's own built-in default is `"medium"` (`isnet_fp16`), and
+     this project explicitly overrides it down to the smallest/lowest-
+     quality tier, `isnet_quint8` — confirmed directly in
+     `dist/index.mjs`'s schema. Fetched the CDN's real
+     `resources.json` manifest for actual model sizes rather than guessing:
+     **`isnet_quint8` 42.3 MB, `isnet_fp16` 84.1 MB (2x), `isnet` 168.0 MB
+     (4x)**. Every user pays this download cost themselves (client-side,
+     no server caching it for them) — moving even one tier up roughly
+     doubles first-use download size and likely adds real inference cost
+     too, working against the "very slow" complaint at the same time it
+     helps the quality complaints. This is a genuine three-way product
+     tradeoff (download size vs. speed vs. segmentation quality), not an
+     engineering bug with one correct fix — flagged to the Owner rather
+     than picked unilaterally.
+  4. **The specific "holes inside a same-colored object, even separated by
+     an outline" symptom is an inherent model-quality limitation, not
+     something a config change fixes.** A targeted algorithmic fix is
+     possible in principle — flood-fill the alpha mask from the image
+     border through fully-transparent pixels (I already have working,
+     fresh flood-fill code for exactly this shape of problem, from D7's
+     `lib/color-segmenter.ts`) and treat any transparent region NOT
+     reachable from the border as a segmentation mistake, forcing it back
+     to opaque. **Deliberately not built**: that same "enclosed transparent
+     region" shape also describes a *correct* result — genuine visible
+     background between an arm and torso, through a subject's fingers, a
+     hoop earring, glasses frames, and so on — which a border-flood-fill
+     heuristic cannot tell apart from the reported artifact. Shipping it
+     blind risks trading a reported bug for a probably-more-common, harder-
+     to-notice regression, and there's no real diverse photo set available
+     in this project to validate the heuristic against either way (only
+     the single COCO demo fixture and this session's synthetic test PNGs).
+     Logged here as a considered-and-rejected option, not silently skipped.
+
 ## Owner action list
 
 - AdSense approval status for this domain is unconfirmed, same as every
   other svc-lab service — ask the Owner to check the AdSense dashboard.
+- **D8 decisions needed:** (a) is trading the real-but-uncertain AdSense
+  compatibility risk for faster WASM inference (via COOP/COEP headers)
+  worth it, or should this wait until ads are confirmed actually rendering
+  on this domain first; (b) is the ~2x/4x download-size cost of
+  `isnet_fp16`/`isnet` worth the quality improvement for this tool's real
+  users, or does `isnet_quint8`'s current download size matter more.
 
 ## Next steps and open questions
 

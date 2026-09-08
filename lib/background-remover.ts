@@ -28,10 +28,24 @@
 // path, caught by an actual failing Playwright e2e run against a real
 // photo, not by reading the types. Worked around by requiring the caller to
 // supply the real MIME type and constructing a correctly-typed Blob here.
+// `device: "gpu"` requests WebGPU execution; the library's own
+// `createOnnxSession` (dist/index.mjs) computes
+// `useWebGPU = config.device === "gpu" && await webgpu()`, where `webgpu()`
+// itself safely returns false if `navigator.gpu` is undefined or
+// `requestAdapter()` resolves null — i.e. this is a strict, side-effect-free
+// upgrade: browsers with WebGPU (most current Chrome/Edge, and increasingly
+// Firefox/Safari) get real GPU acceleration, everything else transparently
+// falls back to the exact same WASM/CPU path as before. Verified against the
+// vendored source, not assumed. `proxyToWorker: true` moves inference off
+// the main thread when the GPU path is active (per the same source, this
+// library's `proxyToWorker` is only wired up for the WebGPU path in this
+// version — harmless to set unconditionally).
 export async function removeImageBackground(input: Uint8Array, mimeType: string): Promise<Uint8Array> {
   const { removeBackground } = await import("@imgly/background-removal");
   const blob = await removeBackground(new Blob([input.slice() as BlobPart], { type: mimeType }), {
     model: "isnet_quint8",
+    device: "gpu",
+    proxyToWorker: true,
     output: { format: "image/png" },
   });
   return new Uint8Array(await blob.arrayBuffer());
