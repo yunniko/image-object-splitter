@@ -449,6 +449,38 @@ an honest downgrade from what was literally asked:
     just theoretical, which is exactly why this became a user choice rather
     than a unilateral default change.
 
+**D10 — Two small UX follow-ups on D9's quality picker (Owner directive,
+2026-09-09): "make downloaded options green and make a retry button if
+other model is chosen for background remover."**
+  - **Green styling**: previously the "downloaded before in this browser"
+    hint was gray text like everything else — now a downloaded tier's
+    whole option card gets a green border/background
+    (`border-green-400 bg-green-50`) and the hint text itself turns
+    `text-green-700`, not just an inline word. Kept independent of the
+    "selected" state (a blue `ring-2` on the label, not a border color) so
+    a tier that's both selected and previously-downloaded shows both
+    signals at once instead of one clobbering the other.
+  - **Retry button**: before this, comparing quality tiers on the same
+    photo meant re-opening the file picker and re-selecting the same file
+    — the component never kept the decoded bytes around after processing.
+    Now `handleFile`'s core logic is split into a reusable `processInput`,
+    and the decoded bytes/MIME type/base filename are kept in
+    `storedInput` state after the first upload. A `lastUsedModel` field
+    tracks which tier actually produced the current result (distinct from
+    `selectedModel`, which tracks the picker) — when they diverge (user
+    picked a different tier post-result) a "Retry with &lt;tier label&gt;"
+    banner appears and re-runs `processInput` against the *stored* bytes,
+    no re-upload needed. Disappears again once the tiers match (including
+    right after a successful retry).
+  - **Verified**: `npx eslint .` clean, `npm run build` clean,
+    `npx vitest run` 43/43 (unaffected — this is UI-only, no lib logic
+    changed). Extended the existing e2e test to assert the downloaded
+    tier's actual `<label>` element carries the green class (not just that
+    the hint text renders), and added one new real end-to-end test that
+    uploads once, switches to a tier not yet used, clicks retry, and
+    confirms a second real model run completes and the prompt clears
+    afterward — a real two-model-download test (~46-50s), not mocked.
+
 ## Owner action list
 
 - AdSense approval status for this domain is unconfirmed, same as every

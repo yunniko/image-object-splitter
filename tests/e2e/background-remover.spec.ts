@@ -53,4 +53,29 @@ test("removes the background from a real photo and downloads a PNG", async ({ pa
   await page.reload();
   const qualityPickerAfterReload = page.locator("fieldset");
   await expect(qualityPickerAfterReload.getByText(/Balanced \(recommended\)[\s\S]*downloaded before in this browser/)).toBeVisible();
+
+  // The downloaded tier's whole option should read as green, not just its
+  // text — check the label wrapping it, not just the hint text itself.
+  await expect(page.locator("label", { hasText: "Balanced (recommended)" })).toHaveClass(/border-green-400/);
+});
+
+test("retry re-processes the same photo with a newly selected quality tier", async ({ page }) => {
+  await page.goto("/background-remover");
+  await page.getByLabel("Choose a photo").setInputFiles(FIXTURE);
+  await expect(page.getByTestId("result-image")).toBeVisible({ timeout: 150_000 });
+
+  // No mismatch yet — the result was just produced with the currently
+  // selected (default) tier, so no retry prompt should show.
+  await expect(page.getByRole("button", { name: /^Retry with/ })).toHaveCount(0);
+
+  await page.getByLabel("Fast").check();
+  await expect(page.getByRole("button", { name: "Retry with Fast" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Retry with Fast" }).click();
+  await expect(page.getByRole("progressbar", { name: "Progress" })).toBeVisible();
+  await expect(page.getByTestId("result-image")).toBeVisible({ timeout: 150_000 });
+
+  // Once the retry completes with the newly selected tier, the mismatch is
+  // gone and the prompt should disappear again — not linger forever.
+  await expect(page.getByRole("button", { name: /^Retry with/ })).toHaveCount(0);
 });

@@ -24,6 +24,18 @@ export function BackgroundRemoverTool() {
   const [filename, setFilename] = useState("background-removed.png");
   const [selectedModel, setSelectedModel] = useState<ModelTier>(DEFAULT_MODEL_TIER);
   const [progress, setProgress] = useState<RemovalProgress | null>(null);
+  // Which tier actually produced the current result (as opposed to
+  // `selectedModel`, which tracks the picker and can move ahead of it once
+  // the user changes their mind post-result) — lets the UI offer a retry
+  // instead of forcing a full re-upload just to compare tiers on the same
+  // photo. Kept alongside the raw bytes/filename (not just the File
+  // object) since a File's own contents aren't re-readable after the
+  // input's value resets; storing the decoded bytes once is simpler than
+  // re-deriving them.
+  const [lastUsedModel, setLastUsedModel] = useState<ModelTier | null>(null);
+  const [storedInput, setStoredInput] = useState<{ bytes: Uint8Array; mimeType: string; baseName: string } | null>(
+    null,
+  );
   // localStorage doesn't exist during SSR, so this reads through
   // useSyncExternalStore rather than a plain useState — its
   // getServerSnapshot returns "all false" for the server-rendered/pre-
@@ -47,17 +59,16 @@ export function BackgroundRemoverTool() {
     };
   }, []);
 
-  async function handleFile(file: File) {
+  async function processInput(bytes: Uint8Array, mimeType: string, baseName: string, model: ModelTier) {
     setError(null);
     setResultBytes(null);
     setResultUrl(null);
     setProgress(null);
     setStatus("processing");
-    setFilename(file.name.replace(/\.[^.]+$/, "") + "-no-bg.png");
+    setFilename(baseName + "-no-bg.png");
     try {
-      const inputBytes = new Uint8Array(await file.arrayBuffer());
-      const outputBytes = await removeImageBackground(inputBytes, file.type || "image/jpeg", {
-        model: selectedModel,
+      const outputBytes = await removeImageBackground(bytes, mimeType, {
+        model,
         onProgress: setProgress,
       });
       setResultBytes(outputBytes);
@@ -66,6 +77,7 @@ export function BackgroundRemoverTool() {
       objectUrlRef.current = newUrl;
       setResultUrl(newUrl);
       setStatus("done");
+      setLastUsedModel(model);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't remove the background from this photo.");
       setStatus("error");
@@ -74,35 +86,73 @@ export function BackgroundRemoverTool() {
     }
   }
 
+  async function handleFile(file: File) {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const mimeType = file.type || "image/jpeg";
+    const baseName = file.name.replace(/\.[^.]+$/, "");
+    setStoredInput({ bytes, mimeType, baseName });
+    await processInput(bytes, mimeType, baseName, selectedModel);
+  }
+
+  // Re-runs the same already-uploaded photo through a different tier
+  // without asking the user to re-pick the file — see storedInput's own
+  // comment for why the raw bytes are kept rather than the File object.
+  async function handleRetryWithSelectedModel() {
+    if (!storedInput) return;
+    await processInput(storedInput.bytes, storedInput.mimeType, storedInput.baseName, selectedModel);
+  }
+
+  const selectedTierLabel = MODEL_TIERS.find((tier) => tier.model === selectedModel)?.label ?? selectedModel;
+  const canRetryWithDifferentModel =
+    storedInput !== null && status !== "processing" && lastUsedModel !== null && lastUsedModel !== selectedModel;
+
   return (
     <div className="space-y-6">
       <fieldset className="space-y-2" disabled={status === "processing"}>
         <legend className="mb-1 text-sm font-medium text-gray-700">Quality</legend>
-        {MODEL_TIERS.map((tier, tierIndex) => (
-          <label
-            key={tier.model}
-            className="flex items-start gap-2 rounded border border-gray-200 p-2 has-[:checked]:border-blue-400 has-[:checked]:bg-blue-50"
-          >
-            <input
-              type="radio"
-              name="model-tier"
-              className="mt-1"
-              checked={selectedModel === tier.model}
-              onChange={() => setSelectedModel(tier.model)}
-              aria-label={tier.label}
-            />
-            <span className="text-sm">
-              <span className="font-medium text-gray-900">{tier.label}</span>{" "}
-              <span className="text-gray-500">
-                — {Math.round(tier.downloadBytes / 1024 / 1024)} MB download
-                {downloadedHintsKey[tierIndex] === "1" ? ", downloaded before in this browser" : ""}
+        {MODEL_TIERS.map((tier, tierIndex) => {
+          const isDownloaded = downloadedHintsKey[tierIndex] === "1";
+          return (
+            <label
+              key={tier.model}
+              className={`flex items-start gap-2 rounded border p-2 has-[:checked]:ring-2 has-[:checked]:ring-blue-400 ${
+                isDownloaded ? "border-green-400 bg-green-50" : "border-gray-200"
+              }`}
+            >
+              <input
+                type="radio"
+                name="model-tier"
+                className="mt-1"
+                checked={selectedModel === tier.model}
+                onChange={() => setSelectedModel(tier.model)}
+                aria-label={tier.label}
+              />
+              <span className="text-sm">
+                <span className="font-medium text-gray-900">{tier.label}</span>{" "}
+                <span className={isDownloaded ? "text-green-700" : "text-gray-500"}>
+                  — {Math.round(tier.downloadBytes / 1024 / 1024)} MB download
+                  {isDownloaded ? ", downloaded before in this browser" : ""}
+                </span>
+                <br />
+                <span className="text-gray-500">{tier.description}</span>
               </span>
-              <br />
-              <span className="text-gray-500">{tier.description}</span>
-            </span>
-          </label>
-        ))}
+            </label>
+          );
+        })}
       </fieldset>
+
+      {canRetryWithDifferentModel && (
+        <div className="flex items-center gap-3 rounded border border-blue-200 bg-blue-50 p-2 text-sm">
+          <span className="text-blue-900">You picked a different quality than the photo below was processed with.</span>
+          <button
+            type="button"
+            onClick={handleRetryWithSelectedModel}
+            className="shrink-0 rounded bg-blue-700 px-3 py-1.5 font-medium text-white hover:bg-blue-800"
+          >
+            Retry with {selectedTierLabel}
+          </button>
+        </div>
+      )}
 
       <ImageFileInput onFile={handleFile} label="Choose a photo" />
 

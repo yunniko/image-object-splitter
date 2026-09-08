@@ -72,6 +72,20 @@ conventions in `E:\CLAUDE\COMPANY\GOALS.md`.
       via the shared `ADSENSE_PUBLISHER_ID` env var).
 
 **Progress log** (newest first):
+- 2026-09-09 — Owner asked for two follow-ups on the quality picker: "make
+  downloaded options green and make a retry button if other model is
+  chosen." Full detail in HANDOVER.md's D10. Downloaded tiers now get a
+  real green border/background, not just gray hint text, kept visually
+  independent from the blue "selected" ring so both can show at once. A
+  new "Retry with &lt;tier&gt;" prompt appears whenever the selected tier
+  differs from whichever tier actually produced the current result, and
+  re-processes the already-uploaded photo's stored bytes without asking
+  for a re-upload. Verified: `npx eslint .`/`npm run build` clean,
+  `npx vitest run` 43/43 (UI-only change, no lib logic touched), and two
+  real e2e checks — the downloaded tier's actual DOM element carries the
+  green class, and a full retry cycle (upload, switch tier, retry, confirm
+  a second real model run completes and the prompt clears) passes against
+  real on-device inference, not mocked.
 - 2026-09-08 — Owner resolved D8's two open questions: held off on COOP/
   COEP (WASM threading) until AdSense is confirmed rendering on this
   domain, and asked for the model-quality tradeoff to become a user-facing
