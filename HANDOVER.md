@@ -56,6 +56,7 @@ svc-lab service #8, the first ML-based one. Goal: `GOALS.md` G-001. Shared conve
 | 2026-09-08 | — | First deploy (port 30120) after an interactive re-verification (D005) | Full suite incl. real inference; routes 200 |
 | 2026-09-08 | — | Split-by-color, resize-to-box, quality tiers (D006–D009) | Full suite; manual browser checks |
 | 2026-09-09 | 718c471 | Green tiers, retry, detector disclosure (D010–D011) | Full suite incl. two-model retry e2e |
+| 2026-09-27 | 9e41e4d | Security: next 16.3.1 → 16.3.6 (critical RCE advisories) | lint, unit 43/43, e2e 13/13 (26/26 on a ×2 rerun), build; container reports 16.3.6; all 4 routes 200 in a browser; other containers untouched |
 
 ## Decisions
 
